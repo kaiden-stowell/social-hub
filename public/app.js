@@ -14,7 +14,13 @@ const state = {
   posts: [],
   analytics: [],
   chats: [],
+  // Per-(view, platform) cache so switches render instantly while background refresh runs
+  cache: new Map(),
 };
+
+function cacheKey(view, platform) { return `${view}:${platform || 'all'}`; }
+function getCache(view)          { return state.cache.get(cacheKey(view, state.currentPlatform)) || null; }
+function setCache(view, data)    { state.cache.set(cacheKey(view, state.currentPlatform), data); }
 
 function platformQs(firstChar = '?') {
   return state.currentPlatform && state.currentPlatform !== 'all'
@@ -44,7 +50,20 @@ const DEL  = (u)   => api('DELETE', u);
 function showView(name) {
   state.view = name;
   document.querySelectorAll('.nav-link').forEach(el => el.classList.toggle('active', el.dataset.view === name));
-  document.querySelectorAll('.view').forEach(el => el.hidden = el.dataset.view !== name);
+  document.querySelectorAll('.view').forEach(el => {
+    const on = el.dataset.view === name;
+    el.hidden = !on;
+    if (on) {
+      // Replay the fade-in animation each time the view is shown
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.style.animation = '';
+    }
+  });
+  // Platform tabs only make sense on data-driven views
+  const showTabs = ['overview', 'dms', 'posts', 'analytics'].includes(name);
+  document.getElementById('platform-tabs').style.display = showTabs ? '' : 'none';
+
   if (name === 'overview')  loadOverview();
   if (name === 'dms')       loadDms();
   if (name === 'posts')     loadPosts();
@@ -59,18 +78,33 @@ document.querySelectorAll('.nav-link').forEach(el => {
 
 // ── Overview ────────────────────────────────────────────────────────────
 async function loadOverview() {
-  const qs = platformQs();
-  const [stats, accounts, posts] = await Promise.all([
-    GET('/api/stats' + qs),
-    GET('/api/accounts' + qs),
-    GET('/api/posts' + qs),
-  ]);
-  state.stats = stats;
-  state.accounts = accounts;
-  renderStats(stats);
-  renderAccountList(accounts);
-  renderOverviewPosts(posts.slice(0, 6));
-  renderEmptyStateIfNeeded(accounts.length === 0);
+  // Paint from cache first (instant switch), then refresh in background
+  const cached = getCache('overview');
+  if (cached) {
+    renderStats(cached.stats);
+    renderAccountList(cached.accounts);
+    renderOverviewPosts(cached.posts.slice(0, 6));
+    renderEmptyStateIfNeeded(cached.accounts.length === 0);
+  } else {
+    document.querySelector('.content').classList.add('loading');
+  }
+  try {
+    const qs = platformQs();
+    const [stats, accounts, posts] = await Promise.all([
+      GET('/api/stats' + qs),
+      GET('/api/accounts' + qs),
+      GET('/api/posts' + qs),
+    ]);
+    state.stats = stats;
+    state.accounts = accounts;
+    setCache('overview', { stats, accounts, posts });
+    renderStats(stats);
+    renderAccountList(accounts);
+    renderOverviewPosts(posts.slice(0, 6));
+    renderEmptyStateIfNeeded(accounts.length === 0);
+  } finally {
+    document.querySelector('.content').classList.remove('loading');
+  }
 }
 
 function renderAccountList(accounts) {
@@ -127,8 +161,12 @@ function renderOverviewPosts(posts) {
 
 // ── Posts ───────────────────────────────────────────────────────────────
 async function loadPosts() {
-  state.posts = await GET('/api/posts' + platformQs());
-  document.getElementById('post-grid').innerHTML = state.posts.map(postCardHtml).join('');
+  const cached = getCache('posts');
+  if (cached) document.getElementById('post-grid').innerHTML = cached.posts.map(postCardHtml).join('');
+  const posts = await GET('/api/posts' + platformQs());
+  state.posts = posts;
+  setCache('posts', { posts });
+  document.getElementById('post-grid').innerHTML = posts.map(postCardHtml).join('');
 }
 
 function postCardHtml(p) {
@@ -150,7 +188,11 @@ function postCardHtml(p) {
 
 // ── DMs ─────────────────────────────────────────────────────────────────
 async function loadDms() {
-  state.threads = await GET('/api/threads' + platformQs());
+  const cached = getCache('dms');
+  if (cached) { state.threads = cached.threads; renderThreadList(); }
+  const threads = await GET('/api/threads' + platformQs());
+  state.threads = threads;
+  setCache('dms', { threads });
   renderThreadList();
   if (state.activeThreadId) openThread(state.activeThreadId);
 }
@@ -211,8 +253,15 @@ document.getElementById('composer').addEventListener('submit', async e => {
 
 // ── Analytics ───────────────────────────────────────────────────────────
 async function loadAnalytics() {
+  const cached = getCache('analytics');
+  if (cached) { state.analytics = cached.analytics; renderAnalytics(); }
   const qs = `?limit=14${platformQs('&')}`;
   state.analytics = (await GET('/api/analytics' + qs)).reverse();
+  setCache('analytics', { analytics: state.analytics });
+  renderAnalytics();
+}
+
+function renderAnalytics() {
   const latest = state.analytics[state.analytics.length - 1] || {};
   const el = document.getElementById('analytics-stats');
   el.innerHTML = `
@@ -453,30 +502,49 @@ function modeLabel(m) {
   return 'NOT CONNECTED';
 }
 
-// ── Platform picker ────────────────────────────────────────────────────
-function renderPlatformPicker() {
-  const el = document.getElementById('platform-picker');
-  const label = '<div class="platform-picker-label">Platform</div>';
-  const allActive = state.currentPlatform === 'all' ? 'active' : '';
-  const chips = [
-    `<div class="platform-chip all ${allActive}" data-slug="all">All</div>`,
-    ...state.platforms.map(p => {
-      const active = state.currentPlatform === p.slug ? 'active' : '';
-      const bg = active ? `background:${p.color};border-color:${p.color};` : '';
-      return `<div class="platform-chip ${active}" data-slug="${p.slug}" style="${bg}">
-        <span class="dot" style="background:${p.color}"></span>${escape(p.name)}
-      </div>`;
-    }),
-  ].join('');
-  el.innerHTML = label + chips;
-  el.querySelectorAll('.platform-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      state.currentPlatform = chip.dataset.slug;
-      renderPlatformPicker();
-      // Re-load current view
-      showView(state.view);
-    });
-  });
+// ── Platform tabs ──────────────────────────────────────────────────────
+function renderPlatformTabs() {
+  const inner = document.querySelector('#platform-tabs .platform-tabs-inner');
+  // Wipe existing tab buttons but preserve the indicator element
+  Array.from(inner.querySelectorAll('.platform-tab')).forEach(el => el.remove());
+
+  const tabs = [{ slug: 'all', name: 'All', color: '#ffffff', isAll: true }, ...state.platforms];
+  const frag = document.createDocumentFragment();
+  for (const t of tabs) {
+    const btn = document.createElement('button');
+    btn.className = 'platform-tab' + (state.currentPlatform === t.slug ? ' active' : '') + (t.isAll ? ' all' : '');
+    btn.dataset.slug = t.slug;
+    btn.innerHTML = `<span class="dot"${t.isAll ? '' : ` style="background:${t.color}"`}></span>${escape(t.name)}`;
+    btn.addEventListener('click', () => switchPlatform(t.slug));
+    frag.appendChild(btn);
+  }
+  inner.appendChild(frag);
+  requestAnimationFrame(moveIndicator);
+}
+
+function moveIndicator() {
+  const ind = document.getElementById('platform-tab-indicator');
+  const active = document.querySelector('.platform-tab.active');
+  if (!ind || !active) return;
+  const parent = active.parentElement;
+  const left = active.offsetLeft - parent.scrollLeft;
+  const width = active.offsetWidth;
+  ind.style.left = `${left}px`;
+  ind.style.width = `${width}px`;
+  // Color the indicator to match the active platform
+  const p = state.platforms.find(x => x.slug === active.dataset.slug);
+  ind.style.background = p?.color || 'linear-gradient(90deg, #e1306c, #833ab4, #fd1d1d)';
+}
+
+function switchPlatform(slug) {
+  if (state.currentPlatform === slug) return;
+  state.currentPlatform = slug;
+  // Update active class + slide indicator
+  document.querySelectorAll('.platform-tab').forEach(el =>
+    el.classList.toggle('active', el.dataset.slug === slug));
+  requestAnimationFrame(moveIndicator);
+  // Replay the view fade-in
+  showView(state.view);
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────
@@ -572,7 +640,8 @@ document.getElementById('easter-egg')?.addEventListener('click', () => {
     document.getElementById('version-label').textContent = 'v' + (status.version || '—');
     document.getElementById('version-chip').textContent = 'v' + (status.version || '—');
   } catch {}
-  renderPlatformPicker();
+  renderPlatformTabs();
+  window.addEventListener('resize', () => requestAnimationFrame(moveIndicator));
   connectWs();
   showView('overview');
   checkForUpdates();

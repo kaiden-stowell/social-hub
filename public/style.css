@@ -39,17 +39,73 @@ body { display: flex; }
   50%      { box-shadow: 0 0 0 6px rgba(225,48,108,0); }
 }
 
-/* ── Platform picker ── */
-.platform-picker { padding: 12px 16px; border-bottom: 1px solid var(--border); }
-.platform-picker-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
-  color: var(--text-dim); margin-bottom: 8px; font-weight: 600; }
-.platform-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px;
-  margin: 0 4px 4px 0; font-size: 11px; cursor: pointer; user-select: none; font-weight: 600; }
-.platform-chip:hover { background: var(--border); }
-.platform-chip.active { color: white; }
-.platform-chip .dot { width: 6px; height: 6px; border-radius: 50%; }
-.platform-chip.all.active { background: var(--accent); border-color: var(--accent); }
+/* ── Platform tabs (top of content) ── */
+.platform-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: -32px -40px 28px;        /* eat the parent content padding */
+  padding: 16px 40px 0;
+  background: rgba(11,12,16,0.85);
+  backdrop-filter: saturate(160%) blur(10px);
+  -webkit-backdrop-filter: saturate(160%) blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.platform-tabs-inner {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.platform-tabs-inner::-webkit-scrollbar { display: none; }
+
+.platform-tab {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  border: none;
+  background: transparent;
+  transition: color 150ms ease;
+  z-index: 1;
+}
+.platform-tab:hover { color: var(--text); }
+.platform-tab.active { color: var(--text); }
+.platform-tab .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor;
+  transition: background 200ms ease;
+}
+.platform-tab.all .dot { background: linear-gradient(135deg, #e1306c, #833ab4, #fd1d1d); }
+
+.platform-tab-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+  transition: left 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              width 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              background 200ms ease;
+  pointer-events: none;
+}
+
+/* Smooth content fade when switching platforms or views */
+.view { animation: fade-in 220ms ease; }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
 
 /* ── Account list ── */
 .account-list { display: flex; flex-direction: column; gap: 8px; }
@@ -125,10 +181,25 @@ body { display: flex; }
 
 /* ── Content ─────────────────────────────────── */
 .content { flex: 1; overflow-y: auto; padding: 32px 40px; }
-.view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-.view-header h1 { margin: 0; font-size: 24px; font-weight: 700; }
-.content h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim);
-  margin: 32px 0 12px; font-weight: 600; }
+.view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; gap: 16px; }
+.view-header h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.3px; }
+.view-header .subtitle { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+.content h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-dim);
+  margin: 36px 0 14px; font-weight: 600; }
+
+.content.loading .stat-value,
+.content.loading .post-caption,
+.content.loading .account-row .username {
+  background: linear-gradient(90deg, var(--panel-2) 0%, var(--border) 50%, var(--panel-2) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+  color: transparent;
+  border-radius: 4px;
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
 
 .btn { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 8px 16px;
   font-weight: 600; cursor: pointer; font-size: 13px; }
