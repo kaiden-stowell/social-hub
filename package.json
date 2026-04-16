@@ -1,6 +1,6 @@
 {
   "name": "social-hub",
-  "version": "0.1.0",
+  "version": "2026.4.16",
   "description": "Multi-platform social media dashboard — Instagram, Facebook, TikTok, and more via Composio. With a built-in Claude Code assistant.",
   "main": "server.js",
   "type": "commonjs",
